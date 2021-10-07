@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -11,7 +12,7 @@ import (
 
 var (
 	box        = "myBox"
-	classes    = []string{"myCheck", "myNote"}
+	classes    = []string{"myCheck", "myNote", "mySelect"}
 	classesMap = make(map[string]struct{})
 )
 
@@ -26,7 +27,9 @@ func main() {
 }
 
 func run() int {
-	b, err := ioutil.ReadFile("source.html")
+	source := "source.html"
+
+	b, err := ioutil.ReadFile(source)
 	if err != nil {
 		fmt.Println("failed to load source.html, ", err)
 		return 1
@@ -38,7 +41,10 @@ func run() int {
 		return 1
 	}
 
-	walkNodes(doc, 0, 1)
+	hash := sha256.New()
+	docURI := fmt.Sprintf("%x", hash.Sum([]byte(source)))
+
+	walkNodes(doc, 0, 1, docURI)
 
 	err = html.Render(os.Stdout, doc)
 	if err != nil {
@@ -49,7 +55,18 @@ func run() int {
 	return 0
 }
 
-func walkNodes(n *html.Node, boxCounter int, elemCounter int) (int, int) {
+func walkNodes(n *html.Node, boxCounter int, elemCounter int, docURI string) (int, int) {
+	if n.Data == "body" {
+		n.AppendChild(&html.Node{
+			Type: html.ElementNode,
+			Data: "div",
+			Attr: []html.Attribute{
+				{Key: "id", Val: "myDocURI"},
+				{Key: "value", Val: docURI},
+			}},
+		)
+	}
+
 	if n.Type == html.ElementNode {
 		var contains bool
 		var cName string
@@ -70,17 +87,17 @@ func walkNodes(n *html.Node, boxCounter int, elemCounter int) (int, int) {
 				contains = true
 				cName = a.Val
 			}
-			fmt.Printf("Attr: key=%v, val=%v\n", a.Key, a.Val)
 		}
 
 		if contains {
-			n.Attr = append(n.Attr, html.Attribute{Key: "id", Val: fmt.Sprintf("%s-%s-%d", getBoxID(boxCounter), cName, elemCounter)})
+			id := fmt.Sprintf("%s-%s-%d", getBoxID(boxCounter), cName, elemCounter)
+			n.Attr = append(n.Attr, html.Attribute{Key: "id", Val: id})
 			elemCounter++
 		}
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		boxCounter, elemCounter = walkNodes(c, boxCounter, elemCounter)
+		boxCounter, elemCounter = walkNodes(c, boxCounter, elemCounter, docURI)
 	}
 
 	return boxCounter, elemCounter
